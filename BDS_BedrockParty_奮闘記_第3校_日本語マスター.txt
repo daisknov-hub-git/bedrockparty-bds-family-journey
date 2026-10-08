@@ -1,0 +1,715 @@
+BDSに家族3人で入りたいだけだった
+――20日以上と3連休を注ぎ込んだ、しがないDTPオペレーターとChatGPTのBedrockParty奮闘記
+
+はじめに
+
+私はプログラマーではありません。ネットワークエンジニアでもありません。普段はIllustratorや業務ソフトを使って仕事をしている、しがないDTPオペレーターです。
+
+そんな私がやりたかったことは、とても単純でした。
+
+家族3人でMinecraftを遊びたい。
+
+Windows PCにBedrock Dedicated Server（以下BDS）を立てて、Nintendo
+SwitchやPS5から、家族それぞれのMicrosoftアカウントで同じワールドに入りたい。それだけです。
+
+少なくとも、始めたときは「それだけ」のつもりでした。
+
+ところが気がつけば、Docker
+Desktopを入れ、WSLでUbuntuを動かし、BedrockPartyとNetherNet
+Bridgeを調べ、ICE candidateを追いかけ、Microsoft OAuth
+TokenとXUIDを調査し、最後にはGoのソースコードまで変更していました。
+
+途中には3連休もありました。まとまった時間が取れます。
+
+結果、3日ともこれをやっていました。
+
+検証期間は20日以上。その間、ほぼずっと隣にいたのがChatGPTでした。
+
+私がログを貼る。ChatGPTが原因を考える。「次はこれを確認しましょう」と言われる。実行する。失敗する。ログを貼る。また次を試す。
+
+一つ変える。再起動する。確認する。ダメなら戻す。
+
+そうやって、一枚ずつ問題を剥がしていきました。
+
+この記事は「この設定をコピーすれば必ず動きます」という万能マニュアルではありません。MinecraftもBDSもBedrockPartyも更新されますし、環境が違えば結果も違うでしょう。
+
+これは、私の環境で何が起き、どう切り分け、最終的に家族3人が同時にBDSへ入れるようになったのか。その過程を、成功だけでなく失敗も含めて残す記録です。
+
+同じところで立ち往生した誰かに、一つでも手掛かりが残れば十分です。
+
+第1章　BDSがSwitchにつながりません
+
+最初にWindows
+PCへBDSを用意しました。サーバーは起動する。ワールドも作れる。ところがNintendo
+Switchから接続しようとして、最初の壁にぶつかりました。
+
+Switch版Minecraftには、PC版のように好きなIPアドレスを入力して任意のBedrock
+Serverへ接続する機能がありません。
+
+つまり、
+
+Nintendo Switch │ │ IPアドレスを直接指定 ✕ │ ▼ BDS
+
+とはできません。
+
+そこで調べて辿り着いたのがBedrockPartyでした。そして、その先で使うことになったのがNetherNet
+Bridgeです。
+
+この時点では「これを使えばSwitchからBDSへ入れるのか」くらいに考えていました。
+
+まだDockerもWSLもOAuthもGoも出てきていません。
+
+平和でした。
+
+第2章　Docker、WSL、Ubuntu
+
+BedrockPartyとBridgeを動かすため、Windows環境へDocker
+Desktopを導入しました。さらにWSL、Ubuntu、Docker Compose、コンテナ。
+
+普段のDTP業務ではまず出てこない単語が、一気に増えていきます。
+
+最終的な構成をかなり簡略化すると、こうなります。
+
+Nintendo Switch / PS5 │ │ BedrockParty ▼ ┌─────────────────────────┐ │
+Windows PC │ │ │ │ Docker Desktop │ │ │ │ │ WSL │ │ │ │ │ Ubuntu │ │ │ │
+│ NetherNet Bridge │ │ │ │ │ ▼ │ │ BDS │ └─────────────────────────┘
+
+もちろん、この時点の私はこの全体像を理解していたわけではありません。ChatGPTに聞きながら、一つずつ進めました。
+
+Bridgeを起動してログを見る。BDSを起動してログを見る。Switchから接続する。
+
+入れない。
+
+またログを見る。
+
+この頃から、検証するときのルールが自然と決まってきました。
+
+一度に複数の設定を変えない。
+
+一つ変える。再起動する。結果を見る。ダメなら戻す。複数箇所を同時に変更すると、動いたとしても何が効いたのか分からなくなるからです。
+
+今思えば、ここだけは最初からDTPオペレーターらしかったのかもしれません。
+
+第3章　BedrockPartyは見えた。だが入れない
+
+試行錯誤を続けるうちに、Switch側にBedrockParty経由のワールドが表示されるようになりました。
+
+これは大きな前進です。何も見えなかった状態から「BedrockPartyのワールドが見えている」ところまで来た。
+
+さっそく接続します。
+
+入れません。
+
+BDSは起動している。Bridgeも起動している。Switchにもワールドは見えている。それでも入れない。
+
+ここからNetherNet周辺のログを詳しく追い始めました。とはいえ、私はログを見ただけで意味が分かる人間ではありません。ChatGPTへ貼って「これは何ですか？」から始まります。
+
+その中で、BDSから返されるSDP
+Answerを調べていると、ある状態が見つかりました。
+
+ICE candidates: 0
+
+BDSはいる。Bridgeもいる。Switchも待っている。
+
+候補だけが誰もいない。
+
+当時、BDSの server.properties にはUDPポート範囲を指定していました。
+
+server-udp-ports=49152-49200
+
+そこで、この設定をコメントアウトしてみます。
+
+#server-udp-ports=49152-49200
+
+BDSを再起動し、もう一度確認すると、
+
+ICE candidates: 0
+
+だったものが、
+
+ICE candidates: 5
+
+になりました。
+
+そしてBridge経由の接続が先へ進むようになりました。
+
+ここは誤解のないように書いておきます。server-udp-ports
+を設定すると必ず問題が起きる、と言いたいわけではありません。
+
+私の環境では、この設定を有効にするとICE
+candidatesが0になり、コメントアウトすると5件生成され、接続できるようになった。
+
+これは、そのとき実際に確認できた結果です。
+
+第4章　Switchが入った。そして次の問題へ
+
+設定を変更してBDSを再起動。Bridgeを起動し、SwitchからBedrockPartyのワールドを選択します。
+
+そしてついに、
+
+SwitchからBDSへ入りました。
+
+それまでログの中にしか存在しなかった接続が、実際のMinecraftの画面につながりました。
+
+これで大きな山は越えた。次はPS5です。こちらも接続できました。
+
+ところがSwitchとPS5で同じMicrosoft/Xboxアカウントを使うと、家族で同時に安定して遊ぶという目的には合いません。
+
+ならば家族それぞれ別のMicrosoftアカウントを使えばいい。
+
+親は親。子どもは子ども。
+
+ごく普通の話です。
+
+ここから先が、普通ではありませんでした。
+
+第5章　子どもで入ったのに、出口では父親になっていた
+
+子ども用のMicrosoftアカウントでSwitchから接続し、Bridgeへ入ってきたMinecraft
+Identityを確認しました。
+
+公開版では実際のゲーマータグとXUIDを伏せています。
+
+IDENTITY_DEBUG DisplayName= XUID=
+
+正しい。Bridgeの入口では「このプレイヤーはChild-A」と認識されています。
+
+ところが、BDSへ向かう側のMultiplayer Tokenを調べると、
+
+MULTIPLAYER_TOKEN_DEBUG xname= xid=
+
+となっていました。
+
+並べると分かりやすくなります。
+
+Incoming Minecraft Identity DisplayName = XUID =
+
+Backend Multiplayer Token xname = xid =
+
+入口では子ども。出口では父親。
+
+子どもで入ったのに、出口では父親になっていた。
+
+何を言っているのか分からないと思います。
+
+調べていた私も、最初は分かりませんでした。
+
+ただ、このログが大きな転換点になりました。
+
+第6章　Identityを追いかける
+
+Bridgeへ入ってきたMinecraft
+Identityは正しい。それなら、そのIdentityをBDS側まで保持すればいいのではないか。
+
+そこでgophertunnel側も含め、Identityがどう扱われているのかを確認しました。incoming側のIdentityを保持するための修正を試します。
+
+修正。ビルド。起動。接続。ログ確認。
+
+しかし、それだけでは解決しません。
+
+Incoming IdentityはChild-Aなのに、backend側のMultiplayer
+Tokenは依然として親です。
+
+ここで、
+
+Minecraft
+Identityを保持することと、BDSへ接続するときのMicrosoft認証Identityは別の問題らしい
+
+と分かってきました。
+
+私はこの仕組みを最初から理解していたわけではありません。ログをChatGPTへ渡し、コードのどこを通っているのか確認し、デバッグ出力を追加して、もう一度接続する。
+
+その繰り返しです。
+
+そしてBridgeのソースコードを追っていくと、Microsoft認証の重要な部分に辿り着きました。
+
+元の処理は概念的には、
+
+token, err := auth.RequestLiveToken() tokenSource :=
+auth.RefreshTokenSource(token)
+
+という形でした。
+
+Bridge起動時にMicrosoft認証を行い、そのTokenSourceをbackend側の接続でも使用します。
+
+一人なら問題ありません。
+
+しかし、今回は家族3人が別々のMicrosoftアカウントで入ります。
+
+Parent ───────────────┐ │ Child-A ───────────────┼──→ NetherNet Bridge │
+Child-B ───────────────┘ │ │ Shared TokenSource ▼ │ ▼ BDS
+
+これなら、入口で誰が来ても出口ではBridgeが認証しているアカウントになります。
+
+あの現象の意味が、ようやく見えました。
+
+子どもが途中で父親に変身していたわけではありません。Bridgeが出口で父親のMicrosoft
+Tokenを使っていたのです。
+
+念のためBridgeを子どものMicrosoftアカウントで認証してみると、
+
+MULTIPLAYER_TOKEN_DEBUG xid= xname=
+
+になりました。
+
+Bridgeを親で認証すれば親。子どもで認証すれば子ども。
+
+必要なのは、Bridgeへ入ってきたプレイヤーに応じて、backendで使うMicrosoft
+Tokenも切り替えることでした。
+
+第7章　DTPオペレーター、Goのソースコードを触る
+
+ここで現在地を確認します。
+
+私はDTPオペレーターです。普段の仕事で使うのはIllustratorや業務用の組版システムです。
+
+Goは書けません。OAuthにも詳しくありません。
+
+その私が休日に、「incoming
+XUIDに応じてTokenSourceを切り替えるにはどうすればいいか」を調べています。
+
+どうしてこうなった。
+
+もちろん、自分でゼロからプログラムを書いたわけではありません。ChatGPTと一緒に「このログなら次はここを見る」「ここへデバッグを追加する」「この処理を変更する」と、一つずつ進めました。
+
+考えた仕組み自体はシンプルです。
+
+プレイヤーごとにXUIDが違う。それなら、XUIDをキーにして、そのプレイヤー専用のMicrosoft
+OAuth Tokenを選ぶ。
+
+Parent ── XUID A ── Token A ──┐ │ Child-A ── XUID B ── Token B ───┼──→
+Bridge → BDS │ Child-B ── XUID C ── Token C ───┘
+
+XUIDからTokenファイルを選択する処理を追加しました。公開用に値を置き換えると、概念的にはこうなります。
+
+func tokenPathForXUID(xuid string) (string, bool) { switch xuid { case
+“”: return “/data/nethernet/.json”, true case “”: return
+“/data/nethernet/.json”, true case “”: return “/data/nethernet/.json”,
+true default: return ““, false } }
+
+つまり、
+
+Incoming XUID ↓ tokenPathForXUID() ↓ そのXUID専用のOAuth Token ↓
+Multiplayer Token ↓ BDS
+
+という流れです。
+
+コードのすべてを理解していたかと言われれば、そうではありません。
+
+ただ、何を変えたのか。そして変えた結果、ログがどうなったのか。
+
+そこだけは一つずつ確認しました。
+
+第8章　子どもが、子どものまま出口まで来た
+
+修正してビルド。Bridgeを起動し、Switchから子どものアカウントで接続します。
+
+入口は、
+
+IDENTITY_DEBUG DisplayName= XUID=
+
+そしてbackend側は、
+
+MULTIPLAYER_TOKEN_DEBUG xname= xid=
+
+一致しました。
+
+Incoming Identity : Child-A Backend Identity : Child-A
+
+今度こそ、子どもが子どものまま出口まで来ました。
+
+そしてBDSへ接続。
+
+文章にすると当たり前のことです。しかし、この当たり前に辿り着くまでが長かった。
+
+ただし、家族は3人です。
+
+3人目のMicrosoftアカウントから接続すると、今度は概念的に、
+
+no Microsoft token configured for player DisplayName= XUID=
+
+となりました。
+
+最初の頃なら「また入れない」で終わっていたと思います。しかし、この頃にはログの意味が少し読めるようになっています。
+
+このXUID用のMicrosoft Tokenがまだない。
+
+そこでXUIDを指定して、アカウントごとのTokenを登録できるようにしました。
+
+docker compose -f compose.win.yml run –rm nethernet-bridge
+–register-token
+
+3人目のTokenを登録し、Bridgeを再起動。
+
+家族3人で接続します。
+
+BDSコンソールで、
+
+list
+
+を実行しました。
+
+公開用に名前を置き換えると、
+
+There are 3/10 players online: , ,
+
+3/10 players online.
+
+3人。全員別のMicrosoftアカウント。同じBDS、同じワールド。
+
+最初にやりたかったことが、ようやく実現しました。
+
+第9章　今日動いただけでは困る
+
+3人同時接続には成功しました。しかし、家族で普段使うサーバーです。起動するたびにMicrosoft認証をやり直すようでは困ります。
+
+そこでTokenSourceをラップし、更新されたTokenをプレイヤーごとのファイルへ保存する処理を追加しました。
+
+type persistingTokenSource struct { src oauth2.TokenSource path string
+mu sync.Mutex }
+
+func (p persistingTokenSource) Token() (oauth2.Token, error) {
+p.mu.Lock() defer p.mu.Unlock()
+
+    token, err := p.src.Token()
+    if err != nil {
+        return nil, err
+    }
+
+    if err := saveLiveToken(p.path, token); err != nil {
+        return nil, err
+    }
+
+    return token, nil
+
+}
+
+Bridge側では、
+
+tokenSource := &persistingTokenSource{ src:
+auth.RefreshTokenSource(token), path: tokenPath, }
+
+とします。
+
+Tokenファイルを保存するディレクトリはDockerへ、
+
+volumes: - “./secrets/nethernet:/data/nethernet:rw”
+
+としてマウントし、さらに、
+
+secrets/
+
+を .gitignore に追加しました。
+
+これは公開時にも非常に重要です。実際のOAuth Tokenやrefresh token、device
+code、private keyなどは絶対に公開しません。
+
+この記事でも、Microsoft/Xboxアカウント名、XUID、家庭内LAN
+IP、Windowsユーザー名など、個人や家庭環境につながる情報は削除または匿名化しています。
+
+第10章　そしてネットワークまで消えた
+
+20日以上も検証していると、Bridge以外の事件も起きます。
+
+あるとき、ネットワークがつながらなくなりました。
+
+Minecraftだけではありません。
+
+ネットワークそのものがおかしい。
+
+ここまでDocker、WSL、ポート、Bridge、ネットワーク周辺を散々触っています。「何かやってはいけないところまで触ったのでは？」と、このときは本気で焦りました。
+
+しかもネットワークの問題をPCで調べたいのに、そのPCのネットワークがおかしい。
+
+そこでスマートフォンを取り出し、ChatGPTのスマホアプリへ避難。
+
+PCの前でスマートフォンから状況を伝え、一つ確認して結果を返し、次を確認する。Minecraftの接続を直していたはずなのに、いつの間にかPCそのもののネットワーク復旧作業をしていました。
+
+問題の規模が一段階上がりました。
+
+幸いネットワークは復旧。
+
+そして何事もなかったかのように、またMinecraftの検証へ戻りました。
+
+まだやります。
+
+第11章　最後の敵は「起動が面倒」
+
+3人入れる。Tokenも保存できる。
+
+技術的には完成です。
+
+しかし実際に遊ぶたびに、Docker
+Desktopを起動し、BDSを起動し、WSL/UbuntuからBridgeを起動する。終了時はBDSへ
+stop を送り、Bridgeを停止し、Docker Desktopも終了する。
+
+毎回これは面倒です。
+
+ここまで来たら、ボタン一発にしたい。
+
+そこでデスクトップに、
+
+Minecraftサーバー起動.bat Minecraftサーバー終了.bat
+
+を作りました。
+
+起動側は、
+
+ダブルクリック ↓ Docker Desktop ↓ BDS ↓ NetherNet Bridge ↓ 完了
+
+です。
+
+ところが、ここでも一度引っ掛かりました。
+
+最初は「UDP
+19132が使われているか」でBDSの起動を判定していました。ところがBATには
+BDS OK と表示されるのに、BDSが起動していません。
+
+そこで、
+
+Get-NetUDPEndpoint -LocalPort 19132 | Select-Object
+LocalAddress,LocalPort,OwningProcess
+
+で確認すると、19132番ポートを使用しているプロセスは確かに存在します。
+
+PIDを調べたところ、正体は、
+
+com.docker.backend
+
+でした。
+
+ポートは確かに使われていた。
+
+ただし、BDSではなかった。
+
+お前じゃない。
+
+そこでポートではなく bedrock_server.exe
+そのものを確認する方式へ変更しました。
+
+終了側にも工夫が必要でした。
+
+単純に taskkill
+すれば簡単ですが、BDSはワールドを扱っています。普段コンソールへ入力する、
+
+stop
+
+をきちんと送り、
+
+Server stop requested. Stopping server… Quit correctly
+
+まで待ちたい。
+
+そこでPowerShellからBDSを起動してStandardInputを保持し、Windowsの名前付きパイプを使って終了BATから
+stop を渡す方式にしました。
+
+Minecraftサーバー終了.bat │ │ “stop” ▼ Windows Named Pipe │ ▼
+MinecraftBDS-Control.ps1 │ ▼ bedrock_server.exe │ ▼ Quit correctly
+
+実際のテストでも、
+
+終了BATから stop を受信しました。 Server stop requested. Stopping
+server… Quit correctly
+
+BDSは正常に終了しました。
+
+を確認。
+
+その後Bridgeを停止し、
+
+docker desktop stop
+
+でDocker Desktopも終了します。
+
+これでようやく、
+
+遊ぶ前に起動BATをダブルクリック。遊び終わったら終了BATをダブルクリック。
+
+という家族用サーバーになりました。
+
+第12章　うまくいかなかったことにも意味があった
+
+成功した設定だけを書けば、この記事はもっと短くできます。
+
+でも今回の場合、失敗したことにもかなり価値がありました。
+
+server-udp-ports=49152-49200 は、私の環境ではICE
+candidatesが0になりました。Incoming
+Identityだけを保持しても複数アカウント問題は解決せず、backend側のMicrosoft
+Multiplayer Tokenまで一致させる必要がありました。
+
+1つのMicrosoft
+TokenSourceを全員で共有すると、backend側では同じIdentityになります。同じMicrosoftアカウントをSwitchとPS5で使う方法も、今回の家族同時プレイには向きませんでした。
+
+UDP 19132だけでBDSの起動を判定すればDocker
+backendを誤認し、BDSを雑に強制終了するのも避けたかった。
+
+一つ直ると、その向こうから次の問題が出てくる。
+
+ほぼずっとこれでした。
+
+最終的には、
+
+Parent ── XUID A ── OAuth Token A ──┐ │ Child-A ── XUID B ── OAuth Token
+B ───┼──→ Bridge → BDS │ Child-B ── XUID C ── OAuth Token C ───┘
+
+という構成になりました。
+
+今回の複数アカウント問題を一行で表すなら、
+
+Incoming Identity ≠ Backend Microsoft Identity
+
+だったものを、
+
+Incoming Identity = Backend Microsoft Identity
+
+にした。
+
+これが核心だったと思います。
+
+第13章　次の大型アップデートが来たら
+
+ここまでで、今の環境は動いています。
+
+しかし、この先ずっと同じ状態で動き続けるとは思っていません。Minecraftはアップデートされます。BDSも変わります。BedrockPartyやgophertunnelも変わるかもしれません。
+
+次の大型アップデートでprotocolが変われば、ある日突然、
+
+また入れない。
+
+となる可能性があります。
+
+だから、今動いている環境は「動作確認済みの校了版」として残しておくつもりです。
+
+そして問題が起きたら、MinecraftとBDSのバージョンを見る。protocolを見る。Bridgeを見る。ICE
+candidateを見る。Incoming Identityを見る。Backend Multiplayer
+Tokenを見る。XUIDごとのTokenを見る。
+
+20日前とは一つ、大きく違います。
+
+最初は、
+
+何が分からないのかすら分かりませんでした。
+
+エラーが出ても、どこを見ればいいのか分からない。ログを見ても、そのログが重要なのかすら分からない。
+
+今は違います。
+
+次にエラーが出ても、完全なスタート地点には戻りません。
+
+今度は、どこを見ればいいのかを知っています。
+
+できれば、次の大型アップデートでは何も起きないでほしい。
+
+それが一番です。
+
+最終章　そして伝説へ…。
+
+20日以上。
+
+Docker、WSL、Ubuntu、BedrockParty、NetherNet、ICE、SDP、XUID、OAuth、Multiplayer
+Token、Go、名前付きパイプ。
+
+始める前の私は、そのほとんどを知りませんでした。
+
+目的はただ一つ。
+
+家族3人でMinecraftを遊びたい。
+
+それだけでした。
+
+途中、3連休がありました。
+
+全部使いました。
+
+設定を変える。再起動する。失敗する。ログを見る。ChatGPTへ貼る。次に何を見るか考える。一つ試す。ダメなら戻す。
+
+ネットワークそのものがつながらなくなって、本気で焦ったこともありました。PCで調べられなくなり、スマートフォンのChatGPTアプリへ移動して復旧作業を続けました。
+
+Goのコードも触りました。
+
+もちろん、Goを書けるようになったわけではありません。OAuthの専門家になったわけでもありません。
+
+ただ、
+
+一つ変更したら、一つ確認する。
+
+これだけは最後まで続けました。
+
+そしてある日、BDSコンソールで、
+
+list
+
+を実行しました。
+
+返ってきたのは、
+
+There are 3/10 players online: , ,
+
+でした。
+
+3人。
+
+全員別のMicrosoftアカウント。
+
+同じBDS。同じワールド。
+
+子どもで入ったら、今度はちゃんと子どものまま出口まで来ます。
+
+ようやくです。
+
+私はプログラマーではありません。ネットワークエンジニアでもありません。
+
+DTPオペレーターです。
+
+では、なぜ20日以上もこんなことを続けられたのか。
+
+なぜ一つ直して、確認して、また直して、また確認することを繰り返せたのか。
+
+全部終わってから考えると、少し分かった気がします。
+
+普段の仕事も同じでした。
+
+初校を出す。赤字が返ってくる。修正する。再校を出す。また赤字が返ってくる。もう一度修正する。
+
+文字がずれていないか。画像が抜けていないか。指示と違っていないか。
+
+一つずつ確認する。問題があれば直す。そして正しくなるまで繰り返す。
+
+今回も同じでした。
+
+紙面ではなく、サーバーだった。
+
+Illustratorではなく、DockerやGoだった。
+
+そして、
+
+赤字の代わりにエラーログが返ってきただけでした。
+
+だから、分からないものだらけでも続けられたのだと思います。
+
+もし、
+
+「どうしてそこまで我慢強くデバッグできたんですか？」
+
+と聞かれたら、答えはこれです。
+
+それは、私が「オペレーター」だからです。
+
+20日以上。
+
+初校。
+
+修正。
+
+再校。
+
+また修正。
+
+何度も戻って、直して、確認して。
+
+最後にBDSへ3人の名前が並びました。
+
+これでようやく出せます。
+
+校了。
