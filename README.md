@@ -49,7 +49,15 @@ Serverへ接続する機能がありません。
 
 つまり、
 
-Nintendo Switch │ │ IPアドレスを直接指定 ✕ │ ▼ BDS
+```text
+Nintendo Switch
+      │
+      │ IPアドレスを直接指定
+      ✕
+      │
+      ▼
+     BDS
+```
 
 とはできません。
 
@@ -71,9 +79,24 @@ Desktopを導入しました。さらにWSL、Ubuntu、Docker Compose、コン�
 
 最終的な構成をかなり簡略化すると、こうなります。
 
-Nintendo Switch / PS5 │ │ BedrockParty ▼ ┌─────────────────────────┐ │
-Windows PC │ │ │ │ Docker Desktop │ │ │ │ │ WSL │ │ │ │ │ Ubuntu │ │ │ │
-│ NetherNet Bridge │ │ │ │ │ ▼ │ │ BDS │ └─────────────────────────┘
+```text
+Nintendo Switch / PS5
+          │
+          │ BedrockParty経由
+          ▼
+┌───────────────────────────────────┐
+│ Windows PC                        │
+│                                   │
+│ Docker Desktop / WSL2 / Ubuntu    │
+│       │                           │
+│       ▼                           │
+│ NetherNet Bridge ────────┐       │
+│                          ▼       │
+│                         BDS      │
+└───────────────────────────────────┘
+```
+
+※通信経路を簡略化した概念図です。Docker Desktop、WSL2、Ubuntuの関係を厳密に表すものではありません。
 
 もちろん、この時点の私はこの全体像を理解していたわけではありません。ChatGPTに聞きながら、一つずつ進めました。
 
@@ -181,21 +204,37 @@ Identityを確認しました。
 
 公開版では実際のゲーマータグとXUIDを伏せています。
 
-IDENTITY_DEBUG DisplayName= XUID=
+```text
+IDENTITY_DEBUG
+DisplayName=<CHILD_A_GAMERTAG>
+XUID=<CHILD_A_XUID>
+```
 
 正しい。Bridgeの入口では「このプレイヤーはChild-A」と認識されています。
 
 ところが、BDSへ向かう側のMultiplayer Tokenを調べると、
 
-MULTIPLAYER_TOKEN_DEBUG xname= xid=
+```text
+MULTIPLAYER_TOKEN_DEBUG
+xname=<PARENT_GAMERTAG>
+xid=<PARENT_XUID>
+```
 
 となっていました。
 
 並べると分かりやすくなります。
 
-Incoming Minecraft Identity DisplayName = XUID =
+```text
+Incoming Minecraft Identity
+  DisplayName = <CHILD_A_GAMERTAG>
+  XUID        = <CHILD_A_XUID>
+```
 
-Backend Multiplayer Token xname = xid =
+```text
+Backend Multiplayer Token
+  xname = <PARENT_GAMERTAG>
+  xid   = <PARENT_XUID>
+```
 
 入口では子ども。出口では父親。
 
@@ -236,8 +275,10 @@ Identityを保持することと、BDSへ接続するときのMicrosoft認証Ide
 
 元の処理は概念的には、
 
-token, err := auth.RequestLiveToken() tokenSource :=
-auth.RefreshTokenSource(token)
+```go
+token, err := auth.RequestLiveToken()
+tokenSource := auth.RefreshTokenSource(token)
+```
 
 という形でした。
 
@@ -247,8 +288,16 @@ Bridge起動時にMicrosoft認証を行い、そのTokenSourceをbackend側の�
 
 しかし、今回は家族3人が別々のMicrosoftアカウントで入ります。
 
-Parent ───────────────┐ │ Child-A ───────────────┼──→ NetherNet Bridge │
-Child-B ───────────────┘ │ │ Shared TokenSource ▼ │ ▼ BDS
+```text
+Parent  ───────────┐
+Child-A ───────────┼──→ NetherNet Bridge
+Child-B ───────────┘           │
+                              ▼
+                       Shared TokenSource
+                              │
+                              ▼
+                             BDS
+```
 
 これなら、入口で誰が来ても出口ではBridgeが認証しているアカウントになります。
 
@@ -259,7 +308,11 @@ Tokenを使っていたのです。
 
 念のためBridgeを子どものMicrosoftアカウントで認証してみると、
 
-MULTIPLAYER_TOKEN_DEBUG xid= xname=
+```text
+MULTIPLAYER_TOKEN_DEBUG
+xid=<CHILD_A_XUID>
+xname=<CHILD_A_GAMERTAG>
+```
 
 になりました。
 
@@ -288,20 +341,44 @@ XUIDに応じてTokenSourceを切り替えるにはどうすればいいか」�
 プレイヤーごとにXUIDが違う。それなら、XUIDをキーにして、そのプレイヤー専用のMicrosoft
 OAuth Tokenを選ぶ。
 
-Parent ── XUID A ── Token A ──┐ │ Child-A ── XUID B ── Token B ───┼──→
-Bridge → BDS │ Child-B ── XUID C ── Token C ───┘
+```text
+Parent  ── XUID A ── Token A ──┐
+Child-A ── XUID B ── Token B ──┼──→ Bridge → BDS
+Child-B ── XUID C ── Token C ──┘
+```
 
 XUIDからTokenファイルを選択する処理を追加しました。公開用に値を置き換えると、概念的にはこうなります。
 
-func tokenPathForXUID(xuid string) (string, bool) { switch xuid { case
-“”: return “/data/nethernet/.json”, true case “”: return
-“/data/nethernet/.json”, true case “”: return “/data/nethernet/.json”,
-true default: return ““, false } }
+```go
+func tokenPathForXUID(xuid string) (string, bool) {
+    switch xuid {
+    case "<PARENT_XUID>":
+        return "/data/nethernet/<PARENT_XUID>.json", true
+    case "<CHILD_A_XUID>":
+        return "/data/nethernet/<CHILD_A_XUID>.json", true
+    case "<CHILD_B_XUID>":
+        return "/data/nethernet/<CHILD_B_XUID>.json", true
+    default:
+        return "", false
+    }
+}
+```
+
+※概念を説明するための例です。実際のXUIDや認証ファイルは公開していません。
 
 つまり、
 
-Incoming XUID ↓ tokenPathForXUID() ↓ そのXUID専用のOAuth Token ↓
-Multiplayer Token ↓ BDS
+```text
+Incoming XUID
+      ↓
+tokenPathForXUID()
+      ↓
+そのXUID専用のOAuth Token
+      ↓
+Multiplayer Token
+      ↓
+BDS
+```
 
 という流れです。
 
@@ -317,15 +394,26 @@ Multiplayer Token ↓ BDS
 
 入口は、
 
-IDENTITY_DEBUG DisplayName= XUID=
+```text
+IDENTITY_DEBUG
+DisplayName=<CHILD_A_GAMERTAG>
+XUID=<CHILD_A_XUID>
+```
 
 そしてbackend側は、
 
-MULTIPLAYER_TOKEN_DEBUG xname= xid=
+```text
+MULTIPLAYER_TOKEN_DEBUG
+xname=<CHILD_A_GAMERTAG>
+xid=<CHILD_A_XUID>
+```
 
 一致しました。
 
-Incoming Identity : Child-A Backend Identity : Child-A
+```text
+Incoming Identity : Child-A
+Backend Identity  : Child-A
+```
 
 **今度こそ、子どもが子どものまま出口まで来ました。**
 
@@ -337,7 +425,11 @@ Incoming Identity : Child-A Backend Identity : Child-A
 
 3人目のMicrosoftアカウントから接続すると、今度は概念的に、
 
-no Microsoft token configured for player DisplayName= XUID=
+```text
+no Microsoft token configured for player
+DisplayName=<CHILD_B_GAMERTAG>
+XUID=<CHILD_B_XUID>
+```
 
 となりました。
 
@@ -347,8 +439,10 @@ no Microsoft token configured for player DisplayName= XUID=
 
 そこでXUIDを指定して、アカウントごとのTokenを登録できるようにしました。
 
-docker compose -f compose.win.yml run –rm nethernet-bridge
-–register-token
+```bash
+docker compose -f compose.win.yml run --rm nethernet-bridge \
+  --register-token <XUID>
+```
 
 3人目のTokenを登録し、Bridgeを再起動。
 
@@ -364,7 +458,10 @@ list
 
 公開用に名前を置き換えると、
 
-There are 3/10 players online: , ,
+```text
+There are 3/10 players online:
+<CHILD_B_GAMERTAG>, <PARENT_GAMERTAG>, <CHILD_A_GAMERTAG>
+```
 
 **3/10 players online.**
 
@@ -378,11 +475,18 @@ There are 3/10 players online: , ,
 
 そこでTokenSourceをラップし、更新されたTokenをプレイヤーごとのファイルへ保存する処理を追加しました。
 
-type persistingTokenSource struct { src oauth2.TokenSource path string
-mu sync.Mutex }
+```go
+type persistingTokenSource struct {
+    src  oauth2.TokenSource
+    path string
+    mu   sync.Mutex
+}
+```
 
-func (p persistingTokenSource) Token() (oauth2.Token, error) {
-p.mu.Lock() defer p.mu.Unlock()
+```go
+func (p *persistingTokenSource) Token() (*oauth2.Token, error) {
+    p.mu.Lock()
+    defer p.mu.Unlock()
 
     token, err := p.src.Token()
     if err != nil {
@@ -394,19 +498,26 @@ p.mu.Lock() defer p.mu.Unlock()
     }
 
     return token, nil
-
 }
+```
 
 Bridge側では、
 
-tokenSource := &persistingTokenSource{ src:
-auth.RefreshTokenSource(token), path: tokenPath, }
+```go
+tokenSource := &persistingTokenSource{
+    src:  auth.RefreshTokenSource(token),
+    path: tokenPath,
+}
+```
 
 とします。
 
 Tokenファイルを保存するディレクトリはDockerへ、
 
-volumes: - “./secrets/nethernet:/data/nethernet:rw”
+```yaml
+volumes:
+  - "./secrets/nethernet:/data/nethernet:rw"
+```
 
 としてマウントし、さらに、
 
@@ -464,13 +575,26 @@ stop を送り、Bridgeを停止し、Docker Desktopも終了する。
 
 そこでデスクトップに、
 
-Minecraftサーバー起動.bat Minecraftサーバー終了.bat
+```text
+Minecraftサーバー起動.bat
+Minecraftサーバー終了.bat
+```
 
 を作りました。
 
 起動側は、
 
-ダブルクリック ↓ Docker Desktop ↓ BDS ↓ NetherNet Bridge ↓ 完了
+```text
+ダブルクリック
+      ↓
+Docker Desktop
+      ↓
+BDS
+      ↓
+NetherNet Bridge
+      ↓
+完了
+```
 
 です。
 
@@ -482,8 +606,10 @@ BDS OK と表示されるのに、BDSが起動していません。
 
 そこで、
 
-Get-NetUDPEndpoint -LocalPort 19132 | Select-Object
-LocalAddress,LocalPort,OwningProcess
+```powershell
+Get-NetUDPEndpoint -LocalPort 19132 |
+    Select-Object LocalAddress,LocalPort,OwningProcess
+```
 
 で確認すると、19132番ポートを使用しているプロセスは確かに存在します。
 
@@ -522,13 +648,31 @@ Server stop requested. Stopping server… Quit correctly
 そこでPowerShellからBDSを起動してStandardInputを保持し、Windowsの名前付きパイプを使って終了BATから
 stop を渡す方式にしました。
 
-Minecraftサーバー終了.bat │ │ “stop” ▼ Windows Named Pipe │ ▼
-MinecraftBDS-Control.ps1 │ ▼ bedrock_server.exe │ ▼ Quit correctly
+```text
+Minecraftサーバー終了.bat
+             │
+             │ "stop"
+             ▼
+      Windows Named Pipe
+             │
+             ▼
+ MinecraftBDS-Control.ps1
+             │
+             ▼
+      bedrock_server.exe
+             │
+             ▼
+        Quit correctly
+```
 
 実際のテストでも、
 
-終了BATから stop を受信しました。 Server stop requested. Stopping
-server… Quit correctly
+```text
+終了BATから stop を受信しました。
+Server stop requested.
+Stopping server...
+Quit correctly
+```
 
 BDSは正常に終了しました。
 
@@ -571,8 +715,11 @@ backendを誤認し、BDSを雑に強制終了するのも避けたかった。
 
 最終的には、
 
-Parent ── XUID A ── OAuth Token A ──┐ │ Child-A ── XUID B ── OAuth Token
-B ───┼──→ Bridge → BDS │ Child-B ── XUID C ── OAuth Token C ───┘
+```text
+Parent  ── XUID A ── OAuth Token A ──┐
+Child-A ── XUID B ── OAuth Token B ──┼──→ Bridge → BDS
+Child-B ── XUID C ── OAuth Token C ──┘
+```
 
 という構成になりました。
 
@@ -671,7 +818,10 @@ list
 
 返ってきたのは、
 
-There are 3/10 players online: , ,
+```text
+There are 3/10 players online:
+<CHILD_B_GAMERTAG>, <PARENT_GAMERTAG>, <CHILD_A_GAMERTAG>
+```
 
 でした。
 
