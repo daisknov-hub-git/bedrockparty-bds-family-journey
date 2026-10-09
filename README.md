@@ -1,3 +1,7 @@
+**Language / 言語**
+
+[日本語版](README.md) | [English version](REPORT_EN.md)
+
 # BDSに家族3人で入りたいだけだった
 
 *――20日以上と3連休を注ぎ込んだ、しがないDTPオペレーターとChatGPTのBedrockParty奮闘記*
